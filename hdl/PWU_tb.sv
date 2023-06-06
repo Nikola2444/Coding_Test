@@ -28,7 +28,7 @@ module PWU_tb();
    logic                pa_rdy_i;
    logic [15:0]         pw_c_pa_i=0;
    logic [31:0]         l1_pa_i;
-   logic                l1_vld_i=0;
+   logic                l1_pa_vld_i=0;
    logic                ch_fault_i=0;
    
    // Module instantiation
@@ -53,7 +53,7 @@ module PWU_tb();
 	   .pa_rdy_i			(pa_rdy_i),
 	   .pw_c_pa_i			(pw_c_pa_i[15:0]),
 	   .l1_pa_i			(l1_pa_i[31:0]),
-	   .l1_vld_i			(l1_vld_i),
+	   .l1_pa_vld_i			(l1_pa_vld_i),
 	   .ch_fault_i			(ch_fault_i));
 
 
@@ -86,15 +86,15 @@ module PWU_tb();
       if (l1_va_vld_queue.size()>0)
       begin
 	 limit = $urandom_range(1, 5);
- 	 l1_vld_i = $urandom_range(0, 1);
+ 	 l1_pa_vld_i = $urandom_range(0, 1);
 	 for (int i=0; i<limit; i++)
 	 begin
 	    @(posedge clk_i);
 	 end
-	 l1_vld_i   = 1'b1;
+	 l1_pa_vld_i   = 1'b1;
       end
       else
-	l1_vld_i    = 1'b0;
+	l1_pa_vld_i    = 1'b0;
    end
    // we need to remember every cache request
    always@(posedge clk_i)

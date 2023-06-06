@@ -9,10 +9,9 @@ module walker(/*AUTOARG*/
    // Outputs
    va_rdy_o, pa_o, pa_vld_o, pa_fault_o, pw_c_va_o, pw_c_vld_o,
    l1_va_o, l1_cancel_o, l1_va_vld_o, ch_va_o, ch_va_vld_o, stall_o,
-   stall_i,
    // Inputs
-   clk_i, resetn_i, va_i, va_vld_i, pa_rdy_i, pw_c_pa_i, l1_pa_i,
-   l1_vld_i, ch_fault_i
+   clk_i, resetn_i, va_i, va_vld_i, pw_c_pa_i, l1_pa_i, l1_pa_vld_i,
+   ch_fault_i, stall_i
    );
    
    // synchronization inputs
@@ -20,7 +19,8 @@ module walker(/*AUTOARG*/
    input logic resetn_i;
 
    /*******Input Virtual address IF*********/
-   // through this interface PWU receives untranslated virtual address 
+   // through this interface PWU receives untranslated virtual address
+   
    // Virtual address
    input logic [31:0] va_i;
    // input valid signal
@@ -29,15 +29,15 @@ module walker(/*AUTOARG*/
    output logic       va_rdy_o;
 
    /*******Output Physical address IF*********/
-   // through this interface PWU outputs calculated physical address
+   // through this interface PWU outputs translated address
+
    // output physical address
    output logic[27:0] pa_o;
    //output valid signal
    output logic       pa_vld_o;
    //output fault signal
    output logic       pa_fault_o;
-   //input ready signal
-   input logic        pa_rdy_i;
+   
 
 
    /*******PW$ interface*********/
@@ -51,21 +51,26 @@ module walker(/*AUTOARG*/
    /*******L1 Cache IF*********/
    //virtual address for the L1 cache
    output logic[27:0] l1_va_o;
+   //load cancel signal
    output logic       l1_cancel_o;
    //valid signal for the L1 cache virtual address
    output logic       l1_va_vld_o;
+   //Address received from L1
    input logic [31:0] l1_pa_i;
-   input logic        l1_vld_i;
+   //Valid signal for l1_pa_i data
+   input logic        l1_pa_vld_i;
    /*******Checker Cache IF*********/
    //virtual address for the L1 checker
    output logic[27:0] ch_va_o;
-   //valid signal for the L1 cache virtual address
+   //valid signal for ch_va_o 
    output logic       ch_va_vld_o;
+   //Fault signal from the checker
    input logic        ch_fault_i;
-   // Walker Stall
+   // Walker inside generated stall
    output logic       stall_o;
+   // Walker outside generated stall
    input logic        stall_i;
-   /***********INTERFACE DECLARATION END*****************/
+   
 
    /*******************REGISTER DECLARATIONS*************/
    // reg for input virtual address
@@ -81,17 +86,15 @@ module walker(/*AUTOARG*/
    logic        va_rdy_reg;
 
    /******************WIRES DECLARATION******************/
-
-
    
-   
+   /******************WALKER LOGIX******************/
    
    //Address for PW$
    assign pw_c_va_o = va_reg;
    // valid signal for PW$
    assign pw_c_vld_o = pw00_03_va_vld_reg[0];
 
-   //Process that implements sequential logic that trachs va_vld_i through pw00-pw03 pipe phases
+   //Process that implements sequential logic that tracks va_vld_i through pw00-pw03 pipe phases
    //and registers va_i until data is fetched from L1
    always_ff@(posedge clk_i)
    begin
@@ -105,7 +108,7 @@ module walker(/*AUTOARG*/
       begin
 	 if (!stall_o && !stall_i)
 	 begin
-	    if (va_vld_i && va_rdy_o)//keep va_i until the next valid va
+	    if (va_vld_i && va_rdy_o)//keep va_i until the next handshake
 	    begin
 	       va_reg <= va_i;
 	    end
@@ -113,14 +116,13 @@ module walker(/*AUTOARG*/
 	    //tracking va_vld_i throgh stages
 	    pw00_03_va_vld_reg[3:0] <= {pw00_03_va_vld_reg[2:0], va_vld_i && va_rdy_o};
 	    //Registering data coming out of PW$
-	    ld_va_reg <= {pw_c_pa_i, va_reg[11:0]};
-	    
+	    ld_va_reg <= {pw_c_pa_i, va_reg[11:0]};	    
 	 end
       end
    end
 
-   // Sequential logic used for generating ready signal for the walker
-   assign va_rdy_o = va_rdy_reg || (!va_rdy_reg && pw00_03_va_vld_reg[3] && !stall_o && !stall_i);
+   // Logic used for generating ready signal for the walker
+   assign va_rdy_o = va_rdy_reg || (pw00_03_va_vld_reg[3] && !stall_o && !stall_i);
    always @(posedge clk_i)
    begin
       if (!resetn_i)		 
@@ -135,20 +137,22 @@ module walker(/*AUTOARG*/
    end
 
    
-   //sending data to l1 cache
+   //Sending data to l1 cache
    assign l1_va_o     = ld_va_reg;
-   //sending valid to l1 cache. If there is a stall coming from the outsied
-   // invalidate data so it doenst change L1 cache output
+   //Sending valid to l1 cache. If there is a stall coming from the outsied
+   //invalidate data so it doenst change L1 cache output
    assign l1_va_vld_o = pw00_03_va_vld_reg[2] && !stall_i;
 
-   //sending data to checker
+   //Sending data to checker
    assign ch_va_o = ld_va_reg;
-   //sending valid to checker
+   //Sending valid to checker
    assign ch_va_vld_o = pw00_03_va_vld_reg[2] && !stall_i;
-   // We cancel load if checker generated a fault and there was a valid address in pw03 stage
-   assign l1_cancel_o = ch_fault_i && pw00_03_va_vld_reg[3] && !cancel_fault_reg;
+   //We generate a cancel load impulse if checker generated a fault and there 
+   //was a  pw00_03_va_vld_reg[3]
+   assign l1_cancel_o = ch_fault_i && !cancel_fault_reg && pw00_03_va_vld_reg[3];
 
-   //Sequential logic used for tracking valid and cancel signal through LD04 and LD05 stages
+   //Sequential logic used for tracking valid and cancel signal through LD04 
+   //and LD05 stages
    always@(posedge clk_i)
    begin
       if (!resetn_i)
@@ -158,23 +162,26 @@ module walker(/*AUTOARG*/
       end
       else
       begin
-	 if (!stall_o && !stall_i)
+	 if (!stall_o && !stall_i)// if there was no stall propagate valid signal
 	 begin	 
 	    ld05_va_vld_reg <= pw00_03_va_vld_reg[3];
 	 end
+	 //logic bellow is used to generate a pulse on l1_cancel_o port
 	 if (pw00_03_va_vld_reg[3])
 	   cancel_fault_reg <= l1_cancel_o;
-	 else if (cancel_fault_reg && l1_vld_i && !stall_i)
+	 else if (cancel_fault_reg && l1_pa_vld_i && !stall_i)
 	   cancel_fault_reg <= 1'b0;
       end
    end
 
-   // Stall signal is generated if there was no canceling of load in previous cycle,   
-   // L1 cache has not outputed valid data and there is a valid address in LD04 phase
-   assign stall_o = !ch_fault_i && !l1_vld_i && pw00_03_va_vld_reg[3]; //|| (ld05_va_vld_reg && !pa_rdy_i);
-   
+   //Stall signal is generated if there was no canceling of load,   
+   //L1 cache has not outputed valid data and if there is a valid data 
+   //in PW03 phase
+   assign stall_o = !ch_fault_i && !l1_pa_vld_i && pw00_03_va_vld_reg[3]; 
+
+   //Logic below outputs translated address, valid signal and fault
    assign pa_o = {va_reg[31:16],l1_pa_i[11:0]};
-   assign pa_vld_o = (l1_vld_i || cancel_fault_reg) && pw00_03_va_vld_reg[3];
+   assign pa_vld_o = (l1_pa_vld_i || cancel_fault_reg) && pw00_03_va_vld_reg[3];
    assign pa_fault_o = cancel_fault_reg;
 
    

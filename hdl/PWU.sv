@@ -12,7 +12,7 @@ module PWU
    l1_va_o, l1_cancel_o, l1_va_vld_o, ch_va_o, ch_va_vld_o,
    // Inputs
    clk_i, resetn_i, va_i, va_vld_i, pa_rdy_i, pw_c_pa_i, l1_pa_i,
-   l1_vld_i, ch_fault_i
+   l1_pa_vld_i, ch_fault_i
    );
 
    // synchronization inputs
@@ -30,6 +30,7 @@ module PWU
 
    /*******Output Physical address IF*********/
    // through this interface PWU outputs calculated physical address
+   
    // output physical address
    output logic[27:0] pa_o;
    //output valid signal
@@ -57,18 +58,16 @@ module PWU
    output logic       l1_va_vld_o;
    //Address received from L1
    input logic [31:0] l1_pa_i;
-   //Valid signal for the previous address
-   input logic        l1_vld_i;
+   //Valid signal for l1_pa_i data
+   input logic        l1_pa_vld_i;
    /*******Checker Cache IF*********/
    //virtual address for the checker
    output logic[27:0] ch_va_o;
-   //valid signal for the checker
+   //valid signal for ch_va_o 
    output logic       ch_va_vld_o;
    //Fault signal from the checker
    input logic        ch_fault_i;
 
-
-   /***********INTERFACE DECLARATION END*****************/
 
    /***********REGISTER DECLARATIONS*********************/
    logic [1:0]      walk_sel_reg;
@@ -100,13 +99,14 @@ module PWU
    //input wires   
    logic [3:0]       va_vld_s;
    
-
+   /************PWU LOGIC*****************************/
    
-   //this logic generates arbitration signal. Since walkers always generate PA
+   //Logic below generates arbitration signal. Since walkers always generate PA
    //in the same order, arbitration is done using a simple counter which increments
    //by 1 every time a walker is given VA to translate.
-   //Value of this counter(walk_sel_reg) is then propagated through all the phases (PW00-PW03-LD04-LD05).
-   //Value in each phase controls MUX logic which selects which walker can use a certain interface (PW$ IF, L1 IF, Checker IF, PA OUTPUT IF)
+   //Value of this counter(walk_sel_reg) is then propagated through all the phases 
+   //(PW00-PW03-LD04-LD05).Value in each phase controls MUX logic which selects which 
+   //walker can use a certain interface (PW$ IF, L1 IF, Checker IF, PA OUTPUT IF)
    always_ff@(posedge clk_i)
    begin
       if (!resetn_i)
@@ -119,11 +119,11 @@ module PWU
       begin
 	 if (walkers_ready_s && va_vld_i && !walkers_stall_s)
 	 begin
-	    walk_sel_reg <= walk_sel_reg + 1;
+	    walk_sel_reg <= walk_sel_reg + 1;//counter
 	 end
 	 if (!walkers_stall_s)
 	 begin
-	    walk_sel_pw00_03_reg <= {walk_sel_pw00_03_reg[2:0], walk_sel_reg};	    	    
+	    walk_sel_pw00_03_reg <= {walk_sel_pw00_03_reg[2:0], walk_sel_reg};//propagation registers
 	 end
       end      
    end
@@ -147,11 +147,11 @@ module PWU
    end
 
    // PW$ arbitration logic. Multiplexers which select which walker
-   // has access to PW4.
+   // has access to PW$.
    assign pw_c_vld_o = pw_c_vld_s[walk_sel_pw00_03_reg[0]];
    assign pw_c_va_o  = pw_c_va_s[walk_sel_pw00_03_reg[0]];
-   //Checker and L1 cache arbitration logic. Multiplexers which select which walker
-   // has access to L1 cache and L1 Checker
+   //Checker and L1 cache arbitration logic. Multiplexers which select 
+   //which walker has access to L1 cache and L1 Checker
    assign l1_va_o     = l1_va_s[walk_sel_pw00_03_reg[2]];
    assign l1_va_vld_o = l1_va_vld_s[walk_sel_pw00_03_reg[2]];
    assign ch_va_o = ch_va_s[walk_sel_pw00_03_reg[2]];
@@ -159,17 +159,19 @@ module PWU
    //L1 cancel arbitration logic. Mux that selects which walker can
    //cancel a load
    assign l1_cancel_o = l1_cancel_s[walk_sel_pw00_03_reg[3]];
-   
-   
-   // If one walker generates a stall signal, stall all the other walkers
-   assign walkers_stall_s = stall_s != 0 || pa_vld_o && (!pa_rdy_i && pa_vld_o);
+      
+   //If one walker generates a stall signal, or if Output Physical address IF is not
+   //ready and there is a valid translated address,  stall all the walkers
+   assign walkers_stall_s = stall_s != 0 || (pa_vld_o && !pa_rdy_i);
 
+   //Instantiation of Walker modules. Emacs verilog-mode used for
+   //instantiation
    generate
       for (genvar i=0; i<4; i++)
       begin
 	 /* walker AUTO_TEMPLATE
 	    (
-	  .\(.*\)_o         (\1_s[i]),	  	              
+	  .\(.*\)_o         (\1_s[i]),  	              
 	  .stall_i		(walkers_stall_s),
 	  .va_vld_i		(va_vld_s[i]),
 	    )*/
@@ -192,18 +194,17 @@ module PWU
 			    .resetn_i		(resetn_i),
 			    .va_i		(va_i[31:0]),
 			    .va_vld_i		(va_vld_s[i]),	 // Templated
-			    .pa_rdy_i		(pa_rdy_i),
 			    .pw_c_pa_i		(pw_c_pa_i[15:0]),
 			    .l1_pa_i		(l1_pa_i[31:0]),
-			    .l1_vld_i		(l1_vld_i),
+			    .l1_pa_vld_i	(l1_pa_vld_i),
 			    .ch_fault_i		(ch_fault_i),
 			    .stall_i		(walkers_stall_s)); // Templated
       end
-
-      //Output PA arbitration. Multiplexers which select a walker
-      //that has access to Output Physical address IF.      
+      
    endgenerate
 
+   //Output PA arbitration. Multiplexers which select a walker
+   //that has access to Output Physical address IF.      
    always_ff@(posedge clk_i)
    begin
       if (!resetn_i)
