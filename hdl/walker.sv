@@ -2,6 +2,7 @@ module walker(/*AUTOARG*/
    // Outputs
    va_rdy_o, pa_o, pa_vld_o, pa_fault_o, pw_c_va_o, pw_c_vld_o,
    l1_va_o, l1_cancel_o, l1_va_vld_o, ch_va_o, ch_va_vld_o, stall_o,
+   stall_i,
    // Inputs
    clk_i, resetn_i, va_i, va_vld_i, pa_rdy_i, pw_c_pa_i, l1_pa_i,
    l1_vld_i, ch_fault_i
@@ -23,7 +24,7 @@ module walker(/*AUTOARG*/
    /*******Output Physical address IF*********/
    // through this interface PWU outputs calculated physical address
    // output physical address
-   output logic[31:0] pa_o;
+   output logic[27:0] pa_o;
    //output valid signal
    output logic       pa_vld_o;
    //output fault signal
@@ -56,6 +57,7 @@ module walker(/*AUTOARG*/
    input logic        ch_fault_i;
    // Walker Stall
    output logic       stall_o;
+   output logic       stall_i;
    /***********INTERFACE DECLARATION END*****************/
 
    /*******************REGISTER DECLARATIONS*************/
@@ -95,7 +97,7 @@ module walker(/*AUTOARG*/
       end
       else
       begin
-	 if (!stall_o)
+	 if (!stall_o && !stall_i)
 	 begin
 	    if (va_vld_i && va_rdy_reg)//keep va_i until the next valid va
 	    begin
@@ -118,9 +120,8 @@ module walker(/*AUTOARG*/
       if (!resetn_i)		 
 	va_rdy_reg <= 1'b1;
       else
-	if (!stall_o)
 	begin	    
-	   if (va_vld_i && va_rdy_reg)//we rest rdy until we finish extracting data from L1 cache
+	   if (va_vld_i && va_rdy_reg && !stall_o && !stall_i)//we rest rdy until we finish extracting data from L1 cache
 	     va_rdy_reg <= 1'b0;
 	   else if (!va_rdy_reg && ld05_va_vld_reg)
 	     va_rdy_reg <= 1'b1;	      	    	    
@@ -149,21 +150,20 @@ module walker(/*AUTOARG*/
 	 ld04_va_vld_reg <= 1'b0;
 	 ld05_va_vld_reg <= 1'b0;
       end
-      else if (!stall_o)
+      else if (!stall_o && !stall_i)
       begin
 	 if (pw00_03_va_vld_reg[3])
-	   cancel_fault_reg[0] <= l1_cancel_o;
-	 
-	 
-	 ld04_va_vld_reg <= pw00_03_va_vld_reg[3];
-	 if (!ld05_va_vld_reg && (cancel_fault_reg[0] || l1_vld_i))
-	 begin
-	    ld05_va_vld_reg <= ld04_va_vld_reg;
-	    cancel_fault_reg[1] <= cancel_fault_reg[0] || l1_pa_i[31:12]!=20'h0;
-	 end
-	 else if (ld05_va_vld_reg)
-	   ld05_va_vld_reg <= 1'b0;
+	   cancel_fault_reg[0] <= l1_cancel_o;	 	 
+	 ld04_va_vld_reg <= pw00_03_va_vld_reg[3];	 
       end
+      
+      if (!ld05_va_vld_reg && (cancel_fault_reg[0] || l1_vld_i))
+      begin
+	 ld05_va_vld_reg <= ld04_va_vld_reg;
+	 cancel_fault_reg[1] <= cancel_fault_reg[0] || l1_pa_i[31:12]!=20'h0;
+      end
+      else if (ld05_va_vld_reg)
+	ld05_va_vld_reg <= 1'b0;
    end
 
    // Stall signal is generated if there was no canceling of load in previous cycle,   
@@ -175,11 +175,11 @@ module walker(/*AUTOARG*/
    begin
       if (!resetn_i)
       begin
-	 pa_o <= 32'h0;
+	 pa_o <= 28'h0;
       end
       else
       begin
-	 pa_o <= l1_pa_i;
+	 pa_o <= {va_reg[31:16],l1_pa_i[11:0]};
       end
    end
    assign pa_vld_o = ld05_va_vld_reg;
