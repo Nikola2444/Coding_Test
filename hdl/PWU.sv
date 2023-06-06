@@ -219,7 +219,7 @@ module PWU
 	 begin
 	    pa_o       <= pa_s[walk_sel_pw00_03_reg[3]];
 	    pa_vld_o   <= pa_vld_s[walk_sel_pw00_03_reg[3]];
-	    pa_fault_o <= pa_fault_s[walk_sel_pw00_03_reg[3]] || l1_pa_i[31:12] != 0;
+	    pa_fault_o <= pa_fault_s[walk_sel_pw00_03_reg[3]] || l1_pa_i[31:12] != 0;// here we also check if input data from L1 cache generated a fault
 	 end
       end
    end
