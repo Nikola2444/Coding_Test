@@ -1,3 +1,10 @@
+//------------------------------------------------------------------------------
+// File name   : PWU.sv
+// Author      : Nikola Kovacevic 
+// Created     : 5-Aug-2023
+// Description : Module that translates virtual addresses
+// Notes       : 
+//------------------------------------------------------------------------------ 
 module PWU 
 (/*AUTOARG*/
    // Outputs
@@ -66,8 +73,6 @@ module PWU
    /***********REGISTER DECLARATIONS*********************/
    logic [1:0]      walk_sel_reg;
    logic [3:0][1:0] walk_sel_pw00_03_reg;
-   logic [1:0]      walk_sel_ld04_reg;
-   logic [1:0]      walk_sel_ld05_reg;
    
    /***********WIRES DECLARATION*************************/
    
@@ -118,9 +123,7 @@ module PWU
 	 end
 	 if (!walkers_stall_s)
 	 begin
-	    walk_sel_pw00_03_reg <= {walk_sel_pw00_03_reg[2:0], walk_sel_reg};
-	    walk_sel_ld04_reg 	 <= walk_sel_pw00_03_reg[3];
-	    walk_sel_ld05_reg 	 <= walk_sel_ld04_reg;
+	    walk_sel_pw00_03_reg <= {walk_sel_pw00_03_reg[2:0], walk_sel_reg};	    	    
 	 end
       end      
    end
@@ -159,7 +162,7 @@ module PWU
    
    
    // If one walker generates a stall signal, stall all the other walkers
-   assign walkers_stall_s = stall_s != 0;
+   assign walkers_stall_s = stall_s != 0 || pa_vld_o && (!pa_rdy_i && pa_vld_o);
 
    generate
       for (genvar i=0; i<4; i++)
@@ -192,12 +195,27 @@ module PWU
       end
 
       //Output PA arbitration. Multiplexers which select a walker
-      //that has access to Output Physical address IF.
-      assign pa_o       = pa_s[walk_sel_ld05_reg];
-      assign pa_vld_o   = pa_vld_s[walk_sel_ld05_reg];
-      assign pa_fault_o = pa_fault_s[walk_sel_ld05_reg];
+      //that has access to Output Physical address IF.      
    endgenerate
 
+   always_ff@(posedge clk_i)
+   begin
+      if (!resetn_i)
+      begin
+	 pa_o       <= 28'h0;
+	 pa_vld_o   <= 1'b0;
+	 pa_fault_o <= 1'b0;
+      end
+      else
+      begin
+	 if (pa_rdy_i || (!pa_rdy_i && !pa_vld_o))
+	 begin
+	    pa_o       <= pa_s[walk_sel_pw00_03_reg[3]];
+	    pa_vld_o   <= pa_vld_s[walk_sel_pw00_03_reg[3]];
+	    pa_fault_o <= pa_fault_s[walk_sel_pw00_03_reg[3]] || l1_pa_i[31:12] != 0;
+	 end
+      end
+   end
    
 
 

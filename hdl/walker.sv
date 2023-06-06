@@ -1,3 +1,10 @@
+//------------------------------------------------------------------------------
+// File name   : walker.sv
+// Author      : Nikola Kovacevic 
+// Created     : 5-Aug-2023
+// Description : Submodule inside PWU
+// Notes       : 
+//------------------------------------------------------------------------------ 
 module walker(/*AUTOARG*/
    // Outputs
    va_rdy_o, pa_o, pa_vld_o, pa_fault_o, pw_c_va_o, pw_c_vld_o,
@@ -57,7 +64,7 @@ module walker(/*AUTOARG*/
    input logic        ch_fault_i;
    // Walker Stall
    output logic       stall_o;
-   output logic       stall_i;
+   input logic        stall_i;
    /***********INTERFACE DECLARATION END*****************/
 
    /*******************REGISTER DECLARATIONS*************/
@@ -66,10 +73,9 @@ module walker(/*AUTOARG*/
    // registers for valid signal in pw00-pw03 pipe stages
    logic [3:0]  pw00_03_va_vld_reg;
    // registers for valid signal in load phases
-   logic        ld04_va_vld_reg;
    logic        ld05_va_vld_reg;
    // register in which we capture cancel from checker
-   logic [1:0]  cancel_fault_reg;
+   logic        cancel_fault_reg;
    // register for data coming out of PW$
    logic [27:0] ld_va_reg;
    logic        va_rdy_reg;
@@ -99,7 +105,7 @@ module walker(/*AUTOARG*/
       begin
 	 if (!stall_o && !stall_i)
 	 begin
-	    if (va_vld_i && va_rdy_reg)//keep va_i until the next valid va
+	    if (va_vld_i && va_rdy_o)//keep va_i until the next valid va
 	    begin
 	       va_reg <= va_i;
 	    end
@@ -113,77 +119,63 @@ module walker(/*AUTOARG*/
       end
    end
 
-   // Sequential logic used for generating ready signal for the walker   
-   assign va_rdy_o = va_rdy_reg;
+   // Sequential logic used for generating ready signal for the walker
+   assign va_rdy_o = va_rdy_reg || (!va_rdy_reg && pw00_03_va_vld_reg[3] && !stall_o && !stall_i);
    always @(posedge clk_i)
    begin
       if (!resetn_i)		 
 	va_rdy_reg <= 1'b1;
       else
 	begin	    
-	   if (va_vld_i && va_rdy_reg && !stall_o && !stall_i)//we rest rdy until we finish extracting data from L1 cache
+	   if (va_vld_i && (va_rdy_reg || va_rdy_o))//we rest rdy until we finish extracting data from L1 cache
 	     va_rdy_reg <= 1'b0;
-	   else if (!va_rdy_reg && ld05_va_vld_reg)
-	     va_rdy_reg <= 1'b1;	      	    	    
+	   else if (!va_rdy_reg && va_rdy_o)
+	     va_rdy_reg <= 1'b1;
 	end
    end
 
    
    //sending data to l1 cache
    assign l1_va_o     = ld_va_reg;
-   //sending valid to l1 cache
-   assign l1_va_vld_o = pw00_03_va_vld_reg[2];
+   //sending valid to l1 cache. If there is a stall coming from the outsied
+   // invalidate data so it doenst change L1 cache output
+   assign l1_va_vld_o = pw00_03_va_vld_reg[2] && !stall_i;
 
    //sending data to checker
    assign ch_va_o = ld_va_reg;
    //sending valid to checker
-   assign ch_va_vld_o = pw00_03_va_vld_reg[2];
+   assign ch_va_vld_o = pw00_03_va_vld_reg[2] && !stall_i;
    // We cancel load if checker generated a fault and there was a valid address in pw03 stage
-   assign l1_cancel_o = ch_fault_i && pw00_03_va_vld_reg[3];
+   assign l1_cancel_o = ch_fault_i && pw00_03_va_vld_reg[3] && !cancel_fault_reg;
 
    //Sequential logic used for tracking valid and cancel signal through LD04 and LD05 stages
    always@(posedge clk_i)
    begin
       if (!resetn_i)
       begin
-	 cancel_fault_reg <= 2'b0;
-	 ld04_va_vld_reg <= 1'b0;
+	 cancel_fault_reg <= 1'b0;	 
 	 ld05_va_vld_reg <= 1'b0;
       end
-      else if (!stall_o && !stall_i)
+      else
       begin
+	 if (!stall_o && !stall_i)
+	 begin	 
+	    ld05_va_vld_reg <= pw00_03_va_vld_reg[3];
+	 end
 	 if (pw00_03_va_vld_reg[3])
-	   cancel_fault_reg[0] <= l1_cancel_o;	 	 
-	 ld04_va_vld_reg <= pw00_03_va_vld_reg[3];	 
+	   cancel_fault_reg <= l1_cancel_o;
+	 else if (cancel_fault_reg && l1_vld_i && !stall_i)
+	   cancel_fault_reg <= 1'b0;
       end
-      
-      if (!ld05_va_vld_reg && (cancel_fault_reg[0] || l1_vld_i))
-      begin
-	 ld05_va_vld_reg <= ld04_va_vld_reg;
-	 cancel_fault_reg[1] <= cancel_fault_reg[0] || l1_pa_i[31:12]!=20'h0;
-      end
-      else if (ld05_va_vld_reg)
-	ld05_va_vld_reg <= 1'b0;
    end
 
    // Stall signal is generated if there was no canceling of load in previous cycle,   
    // L1 cache has not outputed valid data and there is a valid address in LD04 phase
-   assign stall_o = !cancel_fault_reg[0] && !l1_vld_i && ld04_va_vld_reg || (ld05_va_vld_reg && !pa_rdy_i);
-
-
-   always @(posedge clk_i)
-   begin
-      if (!resetn_i)
-      begin
-	 pa_o <= 28'h0;
-      end
-      else
-      begin
-	 pa_o <= {va_reg[31:16],l1_pa_i[11:0]};
-      end
-   end
-   assign pa_vld_o = ld05_va_vld_reg;
-   assign pa_fault_o = cancel_fault_reg[1];
+   assign stall_o = !ch_fault_i && !l1_vld_i && pw00_03_va_vld_reg[3]; //|| (ld05_va_vld_reg && !pa_rdy_i);
+   
+   assign pa_o = {va_reg[31:16],l1_pa_i[11:0]};
+   assign pa_vld_o = (l1_vld_i || cancel_fault_reg) && pw00_03_va_vld_reg[3];
+   assign pa_fault_o = cancel_fault_reg;
 
    
       
