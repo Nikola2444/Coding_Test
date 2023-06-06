@@ -1,7 +1,7 @@
 module walker(/*AUTOARG*/
    // Outputs
    va_rdy_o, pa_o, pa_vld_o, pa_fault_o, pw_c_va_o, pw_c_vld_o,
-   l1_va_o, l1_cancel_o, l1_va_vld_o, ch_va_o, ch_va_vld_o,
+   l1_va_o, l1_cancel_o, l1_va_vld_o, ch_va_o, ch_va_vld_o, stall_o,
    // Inputs
    clk_i, resetn_i, va_i, va_vld_i, pa_rdy_i, pw_c_pa_i, l1_pa_i,
    l1_vld_i, ch_fault_i
@@ -54,7 +54,8 @@ module walker(/*AUTOARG*/
    //valid signal for the L1 cache virtual address
    output logic       ch_va_vld_o;
    input logic        ch_fault_i;
-
+   // Walker Stall
+   output logic       stall_o;
    /***********INTERFACE DECLARATION END*****************/
 
    /*******************REGISTER DECLARATIONS*************/
@@ -72,7 +73,7 @@ module walker(/*AUTOARG*/
    logic        va_rdy_reg;
 
    /******************WIRES DECLARATION******************/
-   logic stall;
+
 
    
    
@@ -94,7 +95,7 @@ module walker(/*AUTOARG*/
       end
       else
       begin
-	 if (!stall)
+	 if (!stall_o)
 	 begin
 	    if (va_vld_i && va_rdy_reg)//keep va_i until the next valid va
 	    begin
@@ -117,11 +118,11 @@ module walker(/*AUTOARG*/
       if (!resetn_i)		 
 	va_rdy_reg <= 1'b1;
       else
-	if (!stall)
+	if (!stall_o)
 	begin	    
 	   if (va_vld_i && va_rdy_reg)//we rest rdy until we finish extracting data from L1 cache
 	     va_rdy_reg <= 1'b0;
-	   else if (!va_rdy_reg && pa_rdy_i)
+	   else if (!va_rdy_reg && ld05_va_vld_reg)
 	     va_rdy_reg <= 1'b1;	      	    	    
 	end
    end
@@ -148,7 +149,7 @@ module walker(/*AUTOARG*/
 	 ld04_va_vld_reg <= 1'b0;
 	 ld05_va_vld_reg <= 1'b0;
       end
-      else if (!stall)
+      else if (!stall_o)
       begin
 	 if (pw00_03_va_vld_reg[3])
 	   cancel_fault_reg[0] <= l1_cancel_o;
@@ -157,17 +158,17 @@ module walker(/*AUTOARG*/
 	 ld04_va_vld_reg <= pw00_03_va_vld_reg[3];
 	 if (!ld05_va_vld_reg && (cancel_fault_reg[0] || l1_vld_i))
 	 begin
-	    ld05_va_vld_reg <= 1'b1;
-	    cancel_fault_reg[1] <= cancel_fault_reg[0];
+	    ld05_va_vld_reg <= ld04_va_vld_reg;
+	    cancel_fault_reg[1] <= cancel_fault_reg[0] || l1_pa_i[31:12]!=20'h0;
 	 end
-	 else if (ld05_va_vld_reg && pa_rdy_i)
+	 else if (ld05_va_vld_reg)
 	   ld05_va_vld_reg <= 1'b0;
       end
    end
 
    // Stall signal is generated if there was no canceling of load in previous cycle,   
    // L1 cache has not outputed valid data and there is a valid address in LD04 phase
-   assign stall = !cancel_fault_reg[0] && !l1_vld_i && ld04_va_vld_reg;
+   assign stall_o = !cancel_fault_reg[0] && !l1_vld_i && ld04_va_vld_reg || (ld05_va_vld_reg && !pa_rdy_i);
 
 
    always @(posedge clk_i)
