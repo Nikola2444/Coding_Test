@@ -167,31 +167,37 @@ module PWU
    generate
       for (genvar i=0; i<4; i++)
       begin
-	 walker walker_inst(/*AUTO_INST*/
+	 /* walker AUTO_TEMPLATE
+	    (
+	  .\(.*\)_o         (\1_s[i]),	  	              
+	  .stall_i		(walkers_stall_s),
+	  .va_vld_i		(va_vld_s[i]),
+	    )*/
+	 walker walker_inst(/*AUTOINST*/
 			    // Outputs
-			    .va_rdy_o		(va_rdy_s[i]),
-			    .pa_o		(pa_s[i][27:0]),
-			    .pa_vld_o		(pa_vld_s[i]),
-			    .pa_fault_o		(pa_fault_s[i]),
-			    .pw_c_va_o		(pw_c_va_s[i][31:0]),
-			    .pw_c_vld_o		(pw_c_vld_s[i]),
-			    .l1_va_o		(l1_va_s[i][27:0]),
-			    .l1_cancel_o	(l1_cancel_s[i]),
-			    .l1_va_vld_o	(l1_va_vld_s[i]),
-			    .ch_va_o		(ch_va_s[i][27:0]),
-			    .ch_va_vld_o	(ch_va_vld_s[i]),
-			    .stall_o		(stall_s[i]),
+			    .va_rdy_o		(va_rdy_s[i]),	 // Templated
+			    .pa_o		(pa_s[i]),	 // Templated
+			    .pa_vld_o		(pa_vld_s[i]),	 // Templated
+			    .pa_fault_o		(pa_fault_s[i]), // Templated
+			    .pw_c_va_o		(pw_c_va_s[i]),	 // Templated
+			    .pw_c_vld_o		(pw_c_vld_s[i]), // Templated
+			    .l1_va_o		(l1_va_s[i]),	 // Templated
+			    .l1_cancel_o	(l1_cancel_s[i]), // Templated
+			    .l1_va_vld_o	(l1_va_vld_s[i]), // Templated
+			    .ch_va_o		(ch_va_s[i]),	 // Templated
+			    .ch_va_vld_o	(ch_va_vld_s[i]), // Templated
+			    .stall_o		(stall_s[i]),	 // Templated
 			    // Inputs
 			    .clk_i		(clk_i),
 			    .resetn_i		(resetn_i),
-			    .stall_i		(walkers_stall_s),
 			    .va_i		(va_i[31:0]),
-			    .va_vld_i		(va_vld_s[i]),
+			    .va_vld_i		(va_vld_s[i]),	 // Templated
 			    .pa_rdy_i		(pa_rdy_i),
 			    .pw_c_pa_i		(pw_c_pa_i[15:0]),
 			    .l1_pa_i		(l1_pa_i[31:0]),
 			    .l1_vld_i		(l1_vld_i),
-			    .ch_fault_i		(ch_fault_i));
+			    .ch_fault_i		(ch_fault_i),
+			    .stall_i		(walkers_stall_s)); // Templated
       end
 
       //Output PA arbitration. Multiplexers which select a walker
